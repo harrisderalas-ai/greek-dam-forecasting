@@ -25,3 +25,7 @@ Create a `.env` file in the project root:
 ```
 ENTSOE_API_TOKEN=your_token_here
 ```
+
+## License
+
+Internal Satori Analytics project — not for redistribution.
