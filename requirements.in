@@ -1,0 +1,6 @@
+# Direct dependencies for the Greek DAM forecasting project
+entsoe-py
+pandas
+matplotlib
+python-dotenv
+jupyter
