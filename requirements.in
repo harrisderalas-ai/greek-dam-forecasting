@@ -4,3 +4,13 @@ pandas
 matplotlib
 python-dotenv
 jupyter
+
+# Modeling
+scikit-learn
+lightgbm
+holidays
+
+# Quality + testing
+pytest
+pytest-cov
+ruff
