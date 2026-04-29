@@ -49,6 +49,91 @@ def fetch_dam_prices(
     return prices
 
 
+def fetch_load_forecast(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    country_code: str = "GR",
+    api_token: str | None = None,
+) -> pd.Series:
+    """
+    Fetch ENTSO-E day-ahead load forecast (MW) for a country.
+
+    Returns hourly forecast values that were published *day-ahead*. These are
+    what was known at gate-closure time, making them legitimate features.
+    """
+    from entsoe import EntsoePandasClient
+
+    if api_token is None:
+        load_dotenv()
+        api_token = os.getenv("ENTSOE_API_TOKEN")
+    if not api_token:
+        raise ValueError("ENTSOE_API_TOKEN not set.")
+
+    client = EntsoePandasClient(api_key=api_token)
+    df = client.query_load_forecast(country_code, start=start, end=end)
+    # ENTSO-E returns a DataFrame with one or more forecast columns;
+    # we want the day-ahead one
+    if isinstance(df, pd.DataFrame):
+        if "Forecasted Load" in df.columns:
+            series = df["Forecasted Load"]
+        else:
+            series = df.iloc[:, 0]
+    else:
+        series = df
+    series.name = "load_forecast_mw"
+    return series
+
+
+def fetch_renewable_forecast(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    country_code: str = "GR",
+    api_token: str | None = None,
+) -> pd.DataFrame:
+    """
+    Fetch ENTSO-E day-ahead wind + solar generation forecast (MW).
+
+    Returns a DataFrame with whatever renewable types are reported for the
+    country, typically: 'Solar', 'Wind Onshore', and sometimes 'Wind Offshore'.
+    """
+    from entsoe import EntsoePandasClient
+
+    if api_token is None:
+        load_dotenv()
+        api_token = os.getenv("ENTSOE_API_TOKEN")
+    if not api_token:
+        raise ValueError("ENTSOE_API_TOKEN not set.")
+
+    client = EntsoePandasClient(api_key=api_token)
+    df = client.query_wind_and_solar_forecast(country_code, start=start, end=end)
+    df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+    return df
+
+
+def fetch_all_inputs(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    country_code: str = "GR",
+    api_token: str | None = None,
+) -> pd.DataFrame:
+    """
+    Fetch prices + load forecast + renewable forecasts and align them on
+    a single hourly DatetimeIndex.
+
+    Returns a DataFrame with at least: price_eur_mwh, load_forecast_mw,
+    and one column per renewable type reported (e.g., solar, wind_onshore).
+    """
+    prices = fetch_dam_prices(start, end, country_code, api_token)
+    load = fetch_load_forecast(start, end, country_code, api_token)
+    renew = fetch_renewable_forecast(start, end, country_code, api_token)
+
+    df = pd.concat(
+        [prices.rename("price_eur_mwh"), load.rename("load_forecast_mw"), renew],
+        axis=1,
+    )
+    return df
+
+
 def generate_mock_dam_prices(
     start: pd.Timestamp,
     end: pd.Timestamp,
@@ -83,13 +168,18 @@ def generate_mock_dam_prices(
 
 
 def save_prices(prices: pd.Series, path: str | Path) -> None:
-    """Save prices to CSV, with timezone-aware timestamp index."""
+    """Save a price series to CSV with UTC-normalized timestamps."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    prices.to_csv(path)
+    out = prices.copy()
+    if out.index.tz is None:
+        raise ValueError("Refusing to save tz-naive index — wrap with tz_localize first.")
+    out.index = out.index.tz_convert("UTC")
+    out.to_csv(path)
 
 
-def load_prices(path: str | Path) -> pd.Series:
-    """Load prices from CSV, parsing the timestamp index."""
-    df = pd.read_csv(path, index_col=0, parse_dates=True)
+def load_prices(path: str | Path, target_tz: str = "Europe/Athens") -> pd.Series:
+    """Load a price series from CSV, returning a tz-aware Series."""
+    df = pd.read_csv(path, index_col=0)
+    df.index = pd.to_datetime(df.index, utc=True).tz_convert(target_tz)
     return df["price_eur_mwh"]
