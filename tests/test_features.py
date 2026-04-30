@@ -1,21 +1,17 @@
 """Tests for src/features.py."""
 
-import numpy as np
 import pandas as pd
-from pandas import Series
 import pytest
 
 from src.features import (
     build_supervised_dataset,
     hours_to_target,
-    make_calendar_features,
-    make_forecast_time_features,
-    make_target_relative_lags,
 )
 
 # ---------------------------------------------------------------------------
 # hours_to_target — the small but critical utility function
 # ---------------------------------------------------------------------------
+
 
 class TestHoursToTarget:
     """Tests for the hours_to_target helper."""
@@ -52,6 +48,7 @@ class TestHoursToTarget:
 # ---------------------------------------------------------------------------
 # Schema tests — verify the dataset has the expected shape and columns
 # ---------------------------------------------------------------------------
+
 
 class TestBuildSupervisedDatasetSchema:
     """Tests verifying X, y, meta have correct shape and columns."""
@@ -100,11 +97,12 @@ class TestBuildSupervisedDatasetSchema:
         assert len(tr_cols) >= 9, "Should have at least 9 tr_ features (3 days × 3 ctx)"
         assert len(target_cols) >= 5, "Should have several target_ features"
         assert "horizon" in X.columns
-        
-        
+
+
 # ---------------------------------------------------------------------------
 # Logic tests — verify the feature pipeline matches its design
 # ---------------------------------------------------------------------------
+
 
 class TestForecastTimeFeaturesAreConstantWithinDay:
     """ft_* features should be identical for all horizons of one forecast day."""
@@ -134,7 +132,7 @@ class TestTargetFeaturesVary:
         counts = meta.groupby("forecast_time").size()
         full_days = counts[counts == 24].index
         assert len(full_days) > 0, "No forecast days had all 24 horizons"
-        chosen = full_days[len(full_days) // 2]   # pick middle of full days
+        chosen = full_days[len(full_days) // 2]  # pick middle of full days
 
         mask = meta["forecast_time"] == chosen
         day_X = X[mask]
@@ -171,6 +169,7 @@ class TestTargetTimesAreCorrect:
 # THE leakage test — the most important test in the suite
 # ---------------------------------------------------------------------------
 
+
 class TestNoLeakage:
     """Critical: no feature value at test time may use information from after t."""
 
@@ -193,7 +192,7 @@ class TestNoLeakage:
         for col in tr_cols:
             # Parse d and k from the column name
             # Format: tr_lag_d{D}_k{K} where K can be -1, +0, +1, etc.
-            after_d = col[len("tr_lag_d"):]
+            after_d = col[len("tr_lag_d") :]
             d_str, k_str = after_d.split("_k")
             d = int(d_str)
             k = int(k_str)
@@ -224,6 +223,7 @@ class TestNoLeakage:
 # NaN pattern test — codifies the table we worked out by hand
 # ---------------------------------------------------------------------------
 
+
 class TestNanPattern:
     """For gate_closure=12, the per-horizon NaN count in tr_* columns is fixed."""
 
@@ -233,16 +233,14 @@ class TestNanPattern:
             (0, 0),
             (5, 0),
             (11, 0),
-            (12, 1),   # d1_k+1 becomes NaN (feature_time = t + 1h)
-            (13, 2),   # d1_k+0 and d1_k+1
-            (14, 3),   # all three d1_*
+            (12, 1),  # d1_k+1 becomes NaN (feature_time = t + 1h)
+            (13, 2),  # d1_k+0 and d1_k+1
+            (14, 3),  # all three d1_*
             (20, 3),
             (23, 3),
         ],
     )
-    def test_nan_count_matches_expected(
-        self, sample_prices, horizon, expected_nan_count
-    ):
+    def test_nan_count_matches_expected(self, sample_prices, horizon, expected_nan_count):
         X, _, meta = build_supervised_dataset(
             sample_prices,
             gate_closure_hour=12,
@@ -256,11 +254,10 @@ class TestNanPattern:
         tr_cols = [c for c in X.columns if c.startswith("tr_")]
         nan_count = sum(pd.isna(sample[c]) for c in tr_cols)
         assert nan_count == expected_nan_count, (
-            f"At horizon={horizon}, expected {expected_nan_count} NaN tr_* cols, "
-            f"got {nan_count}"
+            f"At horizon={horizon}, expected {expected_nan_count} NaN tr_* cols, got {nan_count}"
         )
-        
-        
+
+
 class TestDSTHandling:
     """Verify the pipeline handles DST transitions correctly.
 
@@ -276,9 +273,7 @@ class TestDSTHandling:
         """Sanity check on a non-DST day."""
         from src.features import build_supervised_dataset
 
-        _, _, meta = build_supervised_dataset(
-            dst_spanning_prices, gate_closure_hour=12
-        )
+        _, _, meta = build_supervised_dataset(dst_spanning_prices, gate_closure_hour=12)
         forecast_time = pd.Timestamp("2024-03-20 12:00", tz="Europe/Athens")
         rows = meta[meta["forecast_time"] == forecast_time]
 
@@ -294,9 +289,7 @@ class TestDSTHandling:
         """
         from src.features import build_supervised_dataset
 
-        _, _, meta = build_supervised_dataset(
-            dst_spanning_prices, gate_closure_hour=12
-        )
+        _, _, meta = build_supervised_dataset(dst_spanning_prices, gate_closure_hour=12)
         forecast_time = pd.Timestamp("2024-03-30 12:00", tz="Europe/Athens")
         rows = meta[meta["forecast_time"] == forecast_time]
 
@@ -318,8 +311,12 @@ class TestDSTHandling:
         assert not y.isna().any()
 
         fast_params = {
-            "n_estimators": 10, "learning_rate": 0.1, "num_leaves": 7,
-            "min_child_samples": 5, "random_state": 42, "verbose": -1,
+            "n_estimators": 10,
+            "learning_rate": 0.1,
+            "num_leaves": 7,
+            "min_child_samples": 5,
+            "random_state": 42,
+            "verbose": -1,
         }
         result = train_per_horizon_models(
             dst_spanning_prices,
@@ -340,8 +337,12 @@ class TestDSTHandling:
         assert not y.isna().any()
 
         fast_params = {
-            "n_estimators": 10, "learning_rate": 0.1, "num_leaves": 7,
-            "min_child_samples": 5, "random_state": 42, "verbose": -1,
+            "n_estimators": 10,
+            "learning_rate": 0.1,
+            "num_leaves": 7,
+            "min_child_samples": 5,
+            "random_state": 42,
+            "verbose": -1,
         }
         result = train_per_horizon_models(
             fall_back_prices,
@@ -378,9 +379,3 @@ class TestDSTHandling:
         # Hour 3 should be duplicated — both offsets in the target_time list
         hour_3_count = sum(1 for t in rows["target_time"] if t.hour == 3)
         assert hour_3_count == 2
-        
-    
-    
-
-    
-        

@@ -1,16 +1,21 @@
-# Direct dependencies for the Greek DAM forecasting project
-entsoe-py
+# Production dependencies (used by src/ and tests/)
+
+# Data manipulation
 pandas
-matplotlib
-python-dotenv
-jupyter
+numpy
 
 # Modeling
 scikit-learn
 lightgbm
-holidays
 
-# Quality + testing
+# Domain
+holidays
+entsoe-py
+python-dotenv
+
+# Testing
 pytest
 pytest-cov
+
+# Quality (used by CI)
 ruff

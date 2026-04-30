@@ -30,6 +30,7 @@ def hours_to_target(gate_closure_hour: int, horizon: int) -> int:
 # Calendar features (about the TARGET hour)
 # ---------------------------------------------------------------------------
 
+
 def make_calendar_features(target_index: pd.DatetimeIndex) -> pd.DataFrame:
     """Calendar features for the target timestamp."""
     if target_index.tz is None:
@@ -40,9 +41,11 @@ def make_calendar_features(target_index: pd.DatetimeIndex) -> pd.DataFrame:
     df["target_dow"] = target_index.dayofweek
     df["target_month"] = target_index.month
     df["target_is_weekend"] = (target_index.dayofweek >= 5).astype(int)
-    df["target_is_holiday"] = pd.Series(target_index, index=target_index).apply(
-        lambda ts: ts.date() in GREEK_HOLIDAYS
-    ).astype(int)
+    df["target_is_holiday"] = (
+        pd.Series(target_index, index=target_index)
+        .apply(lambda ts: ts.date() in GREEK_HOLIDAYS)
+        .astype(int)
+    )
 
     df["target_hour_sin"] = np.sin(2 * np.pi * df["target_hour"] / 24)
     df["target_hour_cos"] = np.cos(2 * np.pi * df["target_hour"] / 24)
@@ -54,6 +57,7 @@ def make_calendar_features(target_index: pd.DatetimeIndex) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Forecast-time features (about the MARKET STATE at t)
 # ---------------------------------------------------------------------------
+
 
 def make_forecast_time_features(
     prices: pd.Series,
@@ -88,6 +92,7 @@ def make_forecast_time_features(
 # ---------------------------------------------------------------------------
 # Target-relative lag features (about the TARGET HOUR's recent behaviour)
 # ---------------------------------------------------------------------------
+
 
 def make_target_relative_lags(
     prices: pd.Series,
@@ -171,9 +176,7 @@ def make_exogenous_target_features(
     if "target_load_forecast_mw" in out.columns:
         renew_cols = [c for c in out.columns if c not in ("target_load_forecast_mw",)]
         if renew_cols:
-            out["target_net_load_mw"] = (
-                out["target_load_forecast_mw"] - out[renew_cols].sum(axis=1)
-            )
+            out["target_net_load_mw"] = out["target_load_forecast_mw"] - out[renew_cols].sum(axis=1)
 
     return out
 
@@ -197,15 +200,15 @@ def make_exogenous_forecast_time_features(
     if "ft_load_forecast_mw" in out.columns:
         renew_cols = [c for c in out.columns if c not in ("ft_load_forecast_mw",)]
         if renew_cols:
-            out["ft_net_load_mw"] = (
-                out["ft_load_forecast_mw"] - out[renew_cols].sum(axis=1)
-            )
+            out["ft_net_load_mw"] = out["ft_load_forecast_mw"] - out[renew_cols].sum(axis=1)
 
     return out
+
 
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+
 
 def build_supervised_dataset(
     prices: pd.Series,
@@ -278,11 +281,13 @@ def build_supervised_dataset(
         block["horizon"] = h
         block["__target__"] = prices.reindex(target_times[valid]).values
 
-        meta = pd.DataFrame({
-            "forecast_time": forecast_times[valid],
-            "horizon": h,
-            "target_time": target_times[valid],
-        }).reset_index(drop=True)
+        meta = pd.DataFrame(
+            {
+                "forecast_time": forecast_times[valid],
+                "horizon": h,
+                "target_time": target_times[valid],
+            }
+        ).reset_index(drop=True)
 
         blocks.append(block)
         metas.append(meta)

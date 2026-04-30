@@ -39,9 +39,7 @@ def fetch_dam_prices(
         api_token = os.getenv("ENTSOE_API_TOKEN")
 
     if not api_token:
-        raise ValueError(
-            "ENTSO-E API token not found. Set ENTSOE_API_TOKEN in your .env file."
-        )
+        raise ValueError("ENTSO-E API token not found. Set ENTSOE_API_TOKEN in your .env file.")
 
     client = EntsoePandasClient(api_key=api_token)
     prices = client.query_day_ahead_prices(country_code, start=start, end=end)

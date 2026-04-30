@@ -3,20 +3,18 @@
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import pytest
 
+from src.features import build_supervised_dataset
 from src.train import (
     TrainResult,
     predict_next_day,
     temporal_split,
-    train_per_horizon_models,
 )
-from src.features import build_supervised_dataset
-
 
 # ---------------------------------------------------------------------------
 # temporal_split — a small but critical helper
 # ---------------------------------------------------------------------------
+
 
 class TestTemporalSplit:
     """Tests for the chronological train/test splitter."""
@@ -31,8 +29,7 @@ class TestTemporalSplit:
         # Each forecast day produces 23-24 horizons (DST days drop the missing hour)
         assert len(m_te) <= 14 * 24
         assert len(m_te) >= 14 * 24 - 2, (
-            f"Test set lost too many rows: {len(m_te)} "
-            f"(expected close to {14 * 24})"
+            f"Test set lost too many rows: {len(m_te)} (expected close to {14 * 24})"
         )
 
     def test_train_and_test_are_disjoint_in_time(self, sample_prices):
@@ -55,6 +52,7 @@ class TestTemporalSplit:
 # ---------------------------------------------------------------------------
 # train_per_horizon_models — schema/contract tests
 # ---------------------------------------------------------------------------
+
 
 class TestTrainPerHorizonModelsContract:
     """Tests that the trained bundle has the expected structure."""
@@ -110,6 +108,7 @@ class TestTrainPerHorizonModelsContract:
 # predict_next_day — output contract
 # ---------------------------------------------------------------------------
 
+
 class TestPredictNextDayContract:
     """Tests that predict_next_day produces a well-formed forecast."""
 
@@ -144,11 +143,12 @@ class TestPredictNextDayContract:
         margin = (train_max - train_min) * 0.5
         assert forecast.min() > train_min - margin
         assert forecast.max() < train_max + margin
-        
-        
+
+
 # ---------------------------------------------------------------------------
 # Quality guardrail — model must beat naïve baseline by some margin
 # ---------------------------------------------------------------------------
+
 
 class TestModelBeatsNaiveBaseline:
     """
@@ -176,7 +176,9 @@ class TestModelBeatsNaiveBaseline:
         _, _, _, _, y_te, m_te = temporal_split(X, y, meta, test_days=14)
 
         naive = evaluate_naive_baselines(
-            sample_prices_session, m_te, y_te,
+            sample_prices_session,
+            m_te,
+            y_te,
             gate_closure_hour=trained_result.gate_closure_hour,
         )
         weights = naive["n_test"]

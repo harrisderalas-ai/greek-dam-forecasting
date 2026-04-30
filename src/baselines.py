@@ -76,6 +76,7 @@ def naive_average(
 # Vectorised evaluation across the test set
 # ---------------------------------------------------------------------------
 
+
 def evaluate_naive_baselines(
     prices: pd.Series,
     meta_test: pd.DataFrame,
@@ -123,15 +124,17 @@ def evaluate_naive_baselines(
         sub = sub.dropna(subset=["pred_yesterday", "pred_last_week", "actual"])
         if len(sub) == 0:
             continue
-        out_rows.append({
-            "horizon": h,
-            "mae_yesterday":  (sub["pred_yesterday"] - sub["actual"]).abs().mean(),
-            "mae_last_week":  (sub["pred_last_week"] - sub["actual"]).abs().mean(),
-            "mae_average":    (sub["pred_average"]   - sub["actual"]).abs().mean(),
-            "rmse_yesterday": np.sqrt(((sub["pred_yesterday"] - sub["actual"]) ** 2).mean()),
-            "rmse_last_week": np.sqrt(((sub["pred_last_week"] - sub["actual"]) ** 2).mean()),
-            "rmse_average":   np.sqrt(((sub["pred_average"]   - sub["actual"]) ** 2).mean()),
-            "n_test":         len(sub),
-        })
+        out_rows.append(
+            {
+                "horizon": h,
+                "mae_yesterday": (sub["pred_yesterday"] - sub["actual"]).abs().mean(),
+                "mae_last_week": (sub["pred_last_week"] - sub["actual"]).abs().mean(),
+                "mae_average": (sub["pred_average"] - sub["actual"]).abs().mean(),
+                "rmse_yesterday": np.sqrt(((sub["pred_yesterday"] - sub["actual"]) ** 2).mean()),
+                "rmse_last_week": np.sqrt(((sub["pred_last_week"] - sub["actual"]) ** 2).mean()),
+                "rmse_average": np.sqrt(((sub["pred_average"] - sub["actual"]) ** 2).mean()),
+                "n_test": len(sub),
+            }
+        )
 
     return pd.DataFrame(out_rows)

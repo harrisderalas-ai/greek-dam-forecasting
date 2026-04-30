@@ -1,0 +1,13 @@
+# Development extras (notebooks, exploration)
+# Install locally with: pip-compile requirements-dev.in && pip-sync requirements-dev.txt
+# NOT installed in CI
+
+# Inherit production dependencies
+-r requirements.in
+
+# Notebook + exploration
+jupyter
+matplotlib
+
+# Tooling
+pip-tools

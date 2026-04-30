@@ -54,6 +54,7 @@ def dst_spanning_prices() -> pd.Series:
     values = 100 + 20 * np.sin(np.arange(len(idx)) * 2 * np.pi / 24) + rng.normal(0, 3, len(idx))
     return pd.Series(values, index=idx, name="price_eur_mwh")
 
+
 @pytest.fixture
 def fall_back_prices() -> pd.Series:
     """Prices spanning the fall-back DST transition (October 27, 2024)."""
@@ -104,7 +105,7 @@ def trained_result(sample_prices_session) -> dict:
     from src.train import train_per_horizon_models
 
     fast_params = {
-        "n_estimators": 30,        # tiny: enough to fit, way faster than default
+        "n_estimators": 30,  # tiny: enough to fit, way faster than default
         "learning_rate": 0.1,
         "num_leaves": 15,
         "min_child_samples": 10,
@@ -121,5 +122,3 @@ def trained_result(sample_prices_session) -> dict:
         test_days=14,
         lgbm_params=fast_params,
     )
-    
-    

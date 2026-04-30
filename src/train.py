@@ -13,10 +13,10 @@ from src.features import (
     build_supervised_dataset,
     hours_to_target,
     make_calendar_features,
+    make_exogenous_forecast_time_features,
+    make_exogenous_target_features,
     make_forecast_time_features,
     make_target_relative_lags,
-    make_exogenous_target_features,
-    make_exogenous_forecast_time_features,
 )
 
 
@@ -83,8 +83,8 @@ def train_per_horizon_models(
     feature_names: list[str] | None = None
 
     for h in horizons:
-        h_train_mask = (m_tr["horizon"] == h)
-        h_test_mask = (m_te["horizon"] == h)
+        h_train_mask = m_tr["horizon"] == h
+        h_test_mask = m_te["horizon"] == h
         if not h_train_mask.any() or not h_test_mask.any():
             continue
 
@@ -101,12 +101,14 @@ def train_per_horizon_models(
         models[h] = model
 
         pred = model.predict(X_te_h)
-        metrics_rows.append({
-            "horizon": h,
-            "mae": mean_absolute_error(y_te_h, pred),
-            "rmse": np.sqrt(mean_squared_error(y_te_h, pred)),
-            "n_test": len(y_te_h),
-        })
+        metrics_rows.append(
+            {
+                "horizon": h,
+                "mae": mean_absolute_error(y_te_h, pred),
+                "rmse": np.sqrt(mean_squared_error(y_te_h, pred)),
+                "n_test": len(y_te_h),
+            }
+        )
 
     metrics_df = pd.DataFrame(metrics_rows)
     weights = metrics_df["n_test"].to_numpy()
@@ -134,9 +136,7 @@ def predict_next_day(
     if forecast_time is None:
         candidates = prices.index[prices.index.hour == result.gate_closure_hour]
         if len(candidates) == 0:
-            raise ValueError(
-                f"No timestamps at gate_closure_hour={result.gate_closure_hour}."
-            )
+            raise ValueError(f"No timestamps at gate_closure_hour={result.gate_closure_hour}.")
         forecast_time = candidates.max()
 
     forecast_times = pd.DatetimeIndex([forecast_time])
