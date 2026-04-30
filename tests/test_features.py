@@ -13,7 +13,6 @@ from src.features import (
     make_target_relative_lags,
 )
 
-
 # ---------------------------------------------------------------------------
 # hours_to_target — the small but critical utility function
 # ---------------------------------------------------------------------------
@@ -78,7 +77,7 @@ class TestBuildSupervisedDatasetSchema:
         _, y, _ = build_supervised_dataset(sample_prices)
         assert not y.isna().any(), "Target column should never contain NaN"
 
-    def test_horizons_in_range(self, sample_prices: Series[Any]):
+    def test_horizons_in_range(self, sample_prices):
         _, _, meta = build_supervised_dataset(sample_prices)
         assert meta["horizon"].min() >= 0
         assert meta["horizon"].max() <= 23
@@ -129,11 +128,17 @@ class TestTargetFeaturesVary:
 
     def test_target_hour_has_24_unique_values(self, sample_prices):
         X, _, meta = build_supervised_dataset(sample_prices)
-        chosen = meta["forecast_time"].iloc[len(meta) // 2]
+
+        # Pick a forecast_time that has all 24 horizons present
+        # (some near-edge forecast_times may be missing some horizons after dropna)
+        counts = meta.groupby("forecast_time").size()
+        full_days = counts[counts == 24].index
+        assert len(full_days) > 0, "No forecast days had all 24 horizons"
+        chosen = full_days[len(full_days) // 2]   # pick middle of full days
+
         mask = meta["forecast_time"] == chosen
         day_X = X[mask]
 
-        # All 24 target hours should be present
         assert day_X["target_hour"].nunique() == 24
 
 
@@ -254,3 +259,128 @@ class TestNanPattern:
             f"At horizon={horizon}, expected {expected_nan_count} NaN tr_* cols, "
             f"got {nan_count}"
         )
+        
+        
+class TestDSTHandling:
+    """Verify the pipeline handles DST transitions correctly.
+
+    On spring-forward day (March 31): the local-clock 03:00 hour does not exist.
+    On fall-back day (October 27): the local-clock 03:00 hour exists twice.
+
+    The pipeline indexes horizons by UTC-distance from forecast_time, so it
+    always produces N horizons regardless of local-clock anomalies. The
+    assertions here reflect that.
+    """
+
+    def test_normal_day_has_24_unique_local_hours(self, dst_spanning_prices):
+        """Sanity check on a non-DST day."""
+        from src.features import build_supervised_dataset
+
+        _, _, meta = build_supervised_dataset(
+            dst_spanning_prices, gate_closure_hour=12
+        )
+        forecast_time = pd.Timestamp("2024-03-20 12:00", tz="Europe/Athens")
+        rows = meta[meta["forecast_time"] == forecast_time]
+
+        assert len(rows) == 24
+        local_hours = sorted({int(t.hour) for t in rows["target_time"]})
+        assert local_hours == list(range(24))
+
+    def test_spring_forward_day_skips_local_3am(self, dst_spanning_prices):
+        """
+        On the day before spring-forward, local-clock 03:00 doesn't exist on
+        the target day. The pipeline should still produce 24 forecasts (UTC
+        spacing), but the unique local-hours should be only 23 (3 is missing).
+        """
+        from src.features import build_supervised_dataset
+
+        _, _, meta = build_supervised_dataset(
+            dst_spanning_prices, gate_closure_hour=12
+        )
+        forecast_time = pd.Timestamp("2024-03-30 12:00", tz="Europe/Athens")
+        rows = meta[meta["forecast_time"] == forecast_time]
+
+        # The pipeline produces 24 horizons (UTC-spaced)
+        assert len(rows) == 24
+
+        # But local-clock hours cover only 23 unique values (3am skipped)
+        local_hours = sorted({int(t.hour) for t in rows["target_time"]})
+        assert len(local_hours) == 23
+        assert 3 not in local_hours
+
+    def test_spring_forward_day_pipeline_does_not_crash(self, dst_spanning_prices):
+        """The full pipeline should run on data covering spring-forward."""
+        from src.features import build_supervised_dataset
+        from src.train import train_per_horizon_models
+
+        X, y, meta = build_supervised_dataset(dst_spanning_prices, gate_closure_hour=12)
+        assert len(X) > 0
+        assert not y.isna().any()
+
+        fast_params = {
+            "n_estimators": 10, "learning_rate": 0.1, "num_leaves": 7,
+            "min_child_samples": 5, "random_state": 42, "verbose": -1,
+        }
+        result = train_per_horizon_models(
+            dst_spanning_prices,
+            gate_closure_hour=12,
+            horizons=tuple(range(0, 24)),
+            test_days=7,
+            lgbm_params=fast_params,
+        )
+        assert len(result.models) == 24
+
+    def test_fall_back_day_pipeline_does_not_crash(self, fall_back_prices):
+        """The full pipeline should run on data covering fall-back."""
+        from src.features import build_supervised_dataset
+        from src.train import train_per_horizon_models
+
+        X, y, meta = build_supervised_dataset(fall_back_prices, gate_closure_hour=12)
+        assert len(X) > 0
+        assert not y.isna().any()
+
+        fast_params = {
+            "n_estimators": 10, "learning_rate": 0.1, "num_leaves": 7,
+            "min_child_samples": 5, "random_state": 42, "verbose": -1,
+        }
+        result = train_per_horizon_models(
+            fall_back_prices,
+            gate_closure_hour=12,
+            horizons=tuple(range(0, 24)),
+            test_days=7,
+            lgbm_params=fast_params,
+        )
+        assert len(result.models) == 24
+
+    def test_fall_back_day_produces_24_forecasts(self, fall_back_prices):
+        """
+        On the day before fall-back, the pipeline produces 24 forecasts.
+        Local-clock 03:00 appears TWICE on the target day (with different UTC
+        offsets), so unique local hours are only 23 — but we still produce 24
+        distinct UTC-spaced forecasts.
+        """
+        from src.features import build_supervised_dataset
+
+        _, _, meta = build_supervised_dataset(fall_back_prices, gate_closure_hour=12)
+        forecast_time = pd.Timestamp("2024-10-26 12:00", tz="Europe/Athens")
+        rows = meta[meta["forecast_time"] == forecast_time]
+
+        # 24 horizons regardless of DST
+        assert len(rows) == 24
+
+        # Target times themselves (UTC-distinct) should all differ
+        assert rows["target_time"].nunique() == 24
+
+        # But unique local-clock hours = 23 (3am appears twice)
+        local_hours = sorted({int(t.hour) for t in rows["target_time"]})
+        assert len(local_hours) == 23
+
+        # Hour 3 should be duplicated — both offsets in the target_time list
+        hour_3_count = sum(1 for t in rows["target_time"] if t.hour == 3)
+        assert hour_3_count == 2
+        
+    
+    
+
+    
+        
