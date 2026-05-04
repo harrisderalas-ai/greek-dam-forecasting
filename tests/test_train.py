@@ -193,3 +193,24 @@ class TestModelBeatsNaiveBaseline:
             f"Improvement: {improvement * 100:.1f}% "
             f"(required: >={self.MIN_RELATIVE_IMPROVEMENT * 100:.0f}%)"
         )
+        
+class TestTrainResultSummary:
+    """Tests for TrainResult.summary()."""
+
+    def test_summary_returns_string(self, trained_result):
+        s = trained_result.summary()
+        assert isinstance(s, str)
+        assert len(s) > 0
+
+    def test_summary_contains_key_metrics(self, trained_result):
+        s = trained_result.summary()
+        # Should mention the MAE
+        assert "MAE" in s
+        # Should mention the number of models
+        assert "24" in s
+
+
+    def test_summary_includes_best_and_worst_horizons(self, trained_result):
+        s = trained_result.summary()
+        assert "Best horizon" in s
+        assert "Worst horizon" in s
