@@ -33,6 +33,28 @@ class TrainResult:
     horizons: tuple[int, ...]
     same_hour_lag_days: tuple[int, ...]
     context_window: int
+    
+    def summary(self) -> str:
+        """Return a human-readable summary of training results."""
+        worst_horizon = self.metrics_per_horizon.loc[
+            self.metrics_per_horizon["mae"].idxmax()
+        ]
+        best_horizon = self.metrics_per_horizon.loc[
+            self.metrics_per_horizon["mae"].idxmin()
+        ]
+
+        return (
+            f"TrainResult Summary\n"
+            f"  Models trained:    {len(self.models)} per-horizon LightGBM models\n"
+            f"  Features:          {len(self.feature_names)}\n"
+            f"  Gate closure:      {self.gate_closure_hour}:00\n"
+            f"  Overall test MAE:  {self.overall_test_mae:.2f} EUR/MWh\n"
+            f"  Overall test RMSE: {self.overall_test_rmse:.2f} EUR/MWh\n"
+            f"  Best horizon:      h={int(best_horizon['horizon']):2d} "
+            f"(MAE {best_horizon['mae']:.2f})\n"
+            f"  Worst horizon:     h={int(worst_horizon['horizon']):2d} "
+            f"(MAE {worst_horizon['mae']:.2f})"
+        )
 
 
 def temporal_split(X, y, meta, test_days: int = 14):
