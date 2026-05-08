@@ -25,8 +25,11 @@ attrs==26.1.0
 azure-core==1.40.0
     # via
     #   azure-identity
+    #   azure-keyvault-secrets
     #   azure-storage-blob
 azure-identity==1.25.3
+    # via -r requirements-dev.in
+azure-keyvault-secrets==4.11.0
     # via -r requirements-dev.in
 azure-storage-blob==12.28.0
     # via -r requirements-dev.in
@@ -122,7 +125,9 @@ ipython-pygments-lexers==1.1.1
 ipywidgets==8.1.8
     # via jupyter
 isodate==0.7.2
-    # via azure-storage-blob
+    # via
+    #   azure-keyvault-secrets
+    #   azure-storage-blob
 isoduration==20.11.0
     # via jsonschema
 jedi==0.19.2
@@ -414,6 +419,7 @@ typing-extensions==4.15.0
     # via
     #   azure-core
     #   azure-identity
+    #   azure-keyvault-secrets
     #   azure-storage-blob
     #   beautifulsoup4
 tzdata==2026.2

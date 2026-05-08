@@ -7,6 +7,47 @@ import pandas as pd
 from dotenv import load_dotenv
 
 
+def load_entsoe_token() -> str:
+    """
+    Load the ENTSO-E API token from the appropriate source.
+
+    Priority order:
+    1. Azure Key Vault — if KEY_VAULT_NAME env var is set
+       (the production path, used in Azure ML compute)
+    2. Local .env file — if KEY_VAULT_NAME is not set
+       (the development path, used on your laptop)
+
+    The DefaultAzureCredential handles auth: locally via `az login`,
+    in Azure compute via the managed identity.
+    """
+    import os
+
+    key_vault_name = os.getenv("KEY_VAULT_NAME")
+
+    if key_vault_name:
+        # Production path: fetch from Key Vault
+        from azure.identity import DefaultAzureCredential
+        from azure.keyvault.secrets import SecretClient
+
+        print(f"Fetching ENTSO-E API token from Azure Key Vault: {key_vault_name}")
+        vault_url = f"https://{key_vault_name}.vault.azure.net"
+        credential = DefaultAzureCredential()
+        client = SecretClient(vault_url=vault_url, credential=credential)
+        secret = client.get_secret("ENTSOE-API-TOKEN")
+        return secret.value
+
+    # Development path: fetch from .env
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    token = os.getenv("ENTSOE_API_TOKEN")
+    if not token:
+        raise ValueError(
+            "ENTSO-E token not found. Set ENTSOE_API_TOKEN in .env "
+            "or set KEY_VAULT_NAME to read from Azure Key Vault."
+        )
+    return token
+
 def fetch_dam_prices(
     start: pd.Timestamp,
     end: pd.Timestamp,
@@ -22,10 +63,7 @@ def fetch_dam_prices(
     from entsoe import EntsoePandasClient
 
     if api_token is None:
-        load_dotenv()
-        api_token = os.getenv("ENTSOE_API_TOKEN")
-    if not api_token:
-        raise ValueError("ENTSOE_API_TOKEN not set.")
+        api_token = load_entsoe_token()
 
     client = EntsoePandasClient(api_key=api_token)
     prices = client.query_day_ahead_prices(country_code, start=start, end=end)
@@ -49,10 +87,7 @@ def fetch_load_forecast(
     from entsoe import EntsoePandasClient
 
     if api_token is None:
-        load_dotenv()
-        api_token = os.getenv("ENTSOE_API_TOKEN")
-    if not api_token:
-        raise ValueError("ENTSOE_API_TOKEN not set.")
+        api_token = load_entsoe_token()
 
     client = EntsoePandasClient(api_key=api_token)
     df = client.query_load_forecast(country_code, start=start, end=end)
@@ -85,10 +120,7 @@ def fetch_renewable_forecast(
     from entsoe import EntsoePandasClient
 
     if api_token is None:
-        load_dotenv()
-        api_token = os.getenv("ENTSOE_API_TOKEN")
-    if not api_token:
-        raise ValueError("ENTSOE_API_TOKEN not set.")
+        api_token = load_entsoe_token()
 
     client = EntsoePandasClient(api_key=api_token)
     df = client.query_wind_and_solar_forecast(country_code, start=start, end=end)
