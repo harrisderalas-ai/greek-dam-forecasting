@@ -7,6 +7,47 @@ import pandas as pd
 from dotenv import load_dotenv
 
 
+def load_entsoe_token() -> str:
+    """
+    Load the ENTSO-E API token from the appropriate source.
+
+    Priority order:
+    1. Azure Key Vault — if KEY_VAULT_NAME env var is set
+       (the production path, used in Azure ML compute)
+    2. Local .env file — if KEY_VAULT_NAME is not set
+       (the development path, used on your laptop)
+
+    The DefaultAzureCredential handles auth: locally via `az login`,
+    in Azure compute via the managed identity.
+    """
+    import os
+
+    key_vault_name = os.getenv("KEY_VAULT_NAME")
+
+    if key_vault_name:
+        # Production path: fetch from Key Vault
+        from azure.identity import DefaultAzureCredential
+        from azure.keyvault.secrets import SecretClient
+
+        print(f"Fetching ENTSO-E API token from Azure Key Vault: {key_vault_name}")
+        vault_url = f"https://{key_vault_name}.vault.azure.net"
+        credential = DefaultAzureCredential()
+        client = SecretClient(vault_url=vault_url, credential=credential)
+        secret = client.get_secret("ENTSOE-API-TOKEN")
+        return secret.value
+
+    # Development path: fetch from .env
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    token = os.getenv("ENTSOE_API_TOKEN")
+    if not token:
+        raise ValueError(
+            "ENTSO-E token not found. Set ENTSOE_API_TOKEN in .env "
+            "or set KEY_VAULT_NAME to read from Azure Key Vault."
+        )
+    return token
+
 def fetch_dam_prices(
     start: pd.Timestamp,
     end: pd.Timestamp,
@@ -14,36 +55,20 @@ def fetch_dam_prices(
     api_token: str | None = None,
 ) -> pd.Series:
     """
-    Fetch day-ahead market prices for a given country and time range.
+    Fetch day-ahead market prices for a country.
 
-    Parameters
-    ----------
-    start : pd.Timestamp
-        Start of the period (timezone-aware).
-    end : pd.Timestamp
-        End of the period (timezone-aware, exclusive).
-    country_code : str
-        ENTSO-E country code. Default 'GR' for Greece.
-    api_token : str, optional
-        ENTSO-E API token. If None, read from ENTSOE_API_TOKEN env variable.
-
-    Returns
-    -------
-    pd.Series
-        Hourly DAM prices in EUR/MWh, indexed by timezone-aware timestamps.
+    Returns hourly prices. ENTSO-E may return 15-minute granularity for some
+    periods (post Oct 2025); these are aggregated to hourly via mean.
     """
     from entsoe import EntsoePandasClient
 
     if api_token is None:
-        load_dotenv()
-        api_token = os.getenv("ENTSOE_API_TOKEN")
-
-    if not api_token:
-        raise ValueError("ENTSO-E API token not found. Set ENTSOE_API_TOKEN in your .env file.")
+        api_token = load_entsoe_token()
 
     client = EntsoePandasClient(api_key=api_token)
     prices = client.query_day_ahead_prices(country_code, start=start, end=end)
     prices.name = "price_eur_mwh"
+
     return prices
 
 
@@ -62,10 +87,7 @@ def fetch_load_forecast(
     from entsoe import EntsoePandasClient
 
     if api_token is None:
-        load_dotenv()
-        api_token = os.getenv("ENTSOE_API_TOKEN")
-    if not api_token:
-        raise ValueError("ENTSOE_API_TOKEN not set.")
+        api_token = load_entsoe_token()
 
     client = EntsoePandasClient(api_key=api_token)
     df = client.query_load_forecast(country_code, start=start, end=end)
@@ -79,6 +101,7 @@ def fetch_load_forecast(
     else:
         series = df
     series.name = "load_forecast_mw"
+
     return series
 
 
@@ -97,14 +120,12 @@ def fetch_renewable_forecast(
     from entsoe import EntsoePandasClient
 
     if api_token is None:
-        load_dotenv()
-        api_token = os.getenv("ENTSOE_API_TOKEN")
-    if not api_token:
-        raise ValueError("ENTSOE_API_TOKEN not set.")
+        api_token = load_entsoe_token()
 
     client = EntsoePandasClient(api_key=api_token)
     df = client.query_wind_and_solar_forecast(country_code, start=start, end=end)
     df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+
     return df
 
 
@@ -181,3 +202,120 @@ def load_prices(path: str | Path, target_tz: str = "Europe/Athens") -> pd.Series
     df = pd.read_csv(path, index_col=0)
     df.index = pd.to_datetime(df.index, utc=True).tz_convert(target_tz)
     return df["price_eur_mwh"]
+
+
+def upload_local_to_blob(
+    local_path: str | Path,
+    storage_account: str,
+    container: str,
+    blob_name: str,
+) -> str:
+    """
+    Upload a local file to Azure Blob Storage.
+
+    Returns the blob URL on success.
+
+    Authentication uses DefaultAzureCredential — your `az login` session
+    locally, or the managed identity when running in Azure compute.
+    """
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient
+
+    local_path = Path(local_path)
+    if not local_path.exists():
+        raise FileNotFoundError(f"Local file not found: {local_path}")
+
+    credential = DefaultAzureCredential()
+    account_url = f"https://{storage_account}.blob.core.windows.net"
+    blob_service = BlobServiceClient(account_url=account_url, credential=credential)
+    blob_client = blob_service.get_blob_client(container=container, blob=blob_name)
+
+    with open(local_path, "rb") as f:
+        blob_client.upload_blob(f, overwrite=True)
+
+    return blob_client.url
+
+
+def list_blobs_in_prefix(
+    storage_account: str,
+    container: str,
+    prefix: str,
+) -> list[str]:
+    """
+    List all blob names in `container` whose name starts with `prefix`.
+
+    Returns blob names sorted alphabetically (which is also chronologically
+    if names follow our YYYY-MM-DD convention).
+    """
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient
+
+    credential = DefaultAzureCredential()
+    account_url = f"https://{storage_account}.blob.core.windows.net"
+    blob_service = BlobServiceClient(account_url=account_url, credential=credential)
+    container_client = blob_service.get_container_client(container)
+
+    blob_names = [blob.name for blob in container_client.list_blobs(name_starts_with=prefix)]
+    return sorted(blob_names)
+
+
+def read_csv_from_blob(
+    storage_account: str,
+    container: str,
+    blob_name: str,
+    parse_index_as_datetime: bool = True,
+) -> pd.DataFrame:
+    """
+    Download a CSV blob and return it as a pandas DataFrame.
+
+    The first column of the CSV is used as the index. If
+    `parse_index_as_datetime=True`, the index is parsed as UTC datetime.
+    """
+    import io
+
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient
+
+    credential = DefaultAzureCredential()
+    account_url = f"https://{storage_account}.blob.core.windows.net"
+    blob_service = BlobServiceClient(account_url=account_url, credential=credential)
+    blob_client = blob_service.get_blob_client(container=container, blob=blob_name)
+
+    raw_bytes = blob_client.download_blob().readall()
+    df = pd.read_csv(io.BytesIO(raw_bytes), index_col=0)
+
+    if parse_index_as_datetime:
+        df.index = pd.to_datetime(df.index, utc=True)
+
+    return df
+
+
+def upload_dataframe_to_blob(
+    df: pd.DataFrame,
+    storage_account: str,
+    container: str,
+    blob_name: str,
+) -> str:
+    """
+    Upload a DataFrame as CSV directly to a blob.
+
+    No local file is written. The DataFrame's index is included
+    (matching the format expected by `read_csv_from_blob`).
+
+    Returns the blob URL.
+    """
+    import io
+
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient
+
+    credential = DefaultAzureCredential()
+    account_url = f"https://{storage_account}.blob.core.windows.net"
+    blob_service = BlobServiceClient(account_url=account_url, credential=credential)
+    blob_client = blob_service.get_blob_client(container=container, blob=blob_name)
+
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer)
+    blob_client.upload_blob(csv_buffer.getvalue(), overwrite=True)
+
+    return blob_client.url

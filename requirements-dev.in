@@ -11,3 +11,8 @@ matplotlib
 
 # Tooling
 pip-tools
+
+# Azure
+azure-storage-blob
+azure-identity
+azure-keyvault-secrets
