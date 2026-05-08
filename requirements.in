@@ -20,5 +20,5 @@ pytest-cov
 # Quality (used by CI)
 ruff
 
-mlflow>=2.16,<3.0
+mlflow-skinny>=2.16,<3.0
 azureml-mlflow>=1.55

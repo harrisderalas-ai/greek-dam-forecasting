@@ -330,9 +330,10 @@ matplotlib-inline==0.2.1
 mistune==3.2.1
     # via nbconvert
 mlflow==2.22.4
-    # via -r requirements.in
+    # via -r requirements-dev.in
 mlflow-skinny==2.22.4
     # via
+    #   -r requirements.in
     #   azureml-mlflow
     #   mlflow
 msal==1.36.0
