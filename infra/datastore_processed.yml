@@ -1,0 +1,7 @@
+# Datastore reference: maps a name to an Azure Blob container
+$schema: https://azuremlschemas.azureedge.net/latest/azureBlob.schema.json
+name: processed_data
+type: azure_blob
+description: Curated hourly time series for training and inference
+account_name: sagreekdamdevweu
+container_name: processed

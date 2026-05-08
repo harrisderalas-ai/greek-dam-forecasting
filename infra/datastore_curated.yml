@@ -1,0 +1,6 @@
+$schema: https://azuremlschemas.azureedge.net/latest/azureBlob.schema.json
+name: curated_data
+type: azure_blob
+description: ML-ready training datasets
+account_name: sagreekdamdevweu
+container_name: curated

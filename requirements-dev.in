@@ -16,3 +16,4 @@ pip-tools
 azure-storage-blob
 azure-identity
 azure-keyvault-secrets
+azure-ai-ml
