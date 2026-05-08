@@ -1,0 +1,6 @@
+$schema: https://azuremlschemas.azureedge.net/latest/azureBlob.schema.json
+name: raw_data
+type: azure_blob
+description: API-faithful raw historical data
+account_name: sagreekdamdevweu
+container_name: raw

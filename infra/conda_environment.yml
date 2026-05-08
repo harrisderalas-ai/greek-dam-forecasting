@@ -1,0 +1,19 @@
+name: greek-dam-training
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - pandas==2.3.3
+    - numpy==2.4.4
+    - scikit-learn==1.8.0
+    - lightgbm==4.6.0
+    - holidays==0.96
+    - entsoe-py==0.8.0
+    - python-dotenv==1.2.2
+    - azure-storage-blob==12.27.1
+    - azure-identity==1.25.3
+    - azure-keyvault-secrets==4.11.0
+    - mlflow-skinny==2.22.4
+    - azureml-mlflow==1.62.0.post2
