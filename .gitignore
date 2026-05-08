@@ -27,3 +27,4 @@ Thumbs.db
 mlruns/
 outputs/
 *.zip
+data/processed/*
