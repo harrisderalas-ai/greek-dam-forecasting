@@ -1,0 +1,45 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+
+display_name: train-greek-dam-model
+description: Train per-horizon LightGBM models for Greek DAM forecasting
+experiment_name: greek-dam-baseline
+
+# How to run
+code: ../                     # repository root (needed because the script imports from src/)
+command: >
+  python -m scripts.train_azureml
+  --dam-path ${{inputs.dam_data}}
+  --load-path ${{inputs.load_data}}
+  --renewable-path ${{inputs.renewable_data}}
+  --output-dir ${{outputs.model_outputs}}
+  --gate-closure-hour 12
+  --test-days 30
+  --n-estimators 200
+  --learning-rate 0.05
+  --num-leaves 63
+
+# Where to run
+compute: azureml:cpu-cluster-small
+environment: azureml:greek-dam-training:1
+
+# Inputs from blob storage
+inputs:
+  dam_data:
+    type: uri_file
+    path: azureml://datastores/processed_data/paths/dam_prices/full.csv
+    mode: download
+  load_data:
+    type: uri_file
+    path: azureml://datastores/processed_data/paths/load_forecast/full.csv
+    mode: download
+  renewable_data:
+    type: uri_file
+    path: azureml://datastores/processed_data/paths/renewable_forecast/full.csv
+    mode: download
+
+# Where to write outputs
+outputs:
+  model_outputs:
+    type: uri_folder
+    mode: rw_mount
