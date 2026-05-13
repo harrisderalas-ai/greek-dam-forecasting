@@ -43,24 +43,35 @@ class TrainResult:
     
     def summary(self) -> str:
         """Return a human-readable summary of training results."""
-        worst_horizon = self.metrics_per_horizon.loc[
-            self.metrics_per_horizon["mae"].idxmax()
-        ]
-        best_horizon = self.metrics_per_horizon.loc[
-            self.metrics_per_horizon["mae"].idxmin()
-        ]
+        has_metrics = not self.metrics_per_horizon["mae"].isna().all()
+        
+        if has_metrics:
+            worst_horizon = self.metrics_per_horizon.loc[
+                self.metrics_per_horizon["mae"].idxmax()
+            ]
+            best_horizon = self.metrics_per_horizon.loc[
+                self.metrics_per_horizon["mae"].idxmin()
+            ]
+            metrics_block = (
+                f"  Overall test MAE:  {self.overall_test_mae:.2f} EUR/MWh\n"
+                f"  Overall test RMSE: {self.overall_test_rmse:.2f} EUR/MWh\n"
+                f"  Best horizon:      h={int(best_horizon['horizon']):2d} "
+                f"(MAE {best_horizon['mae']:.2f})\n"
+                f"  Worst horizon:     h={int(worst_horizon['horizon']):2d} "
+                f"(MAE {worst_horizon['mae']:.2f})"
+            )
+        else:
+            metrics_block = (
+                "  Overall test MAE:  n/a (trained on full dataset, no holdout)\n"
+                "  Overall test RMSE: n/a"
+            )
 
         return (
             f"TrainResult Summary\n"
             f"  Models trained:    {len(self.models)} per-horizon LightGBM models\n"
             f"  Features:          {len(self.feature_names)}\n"
             f"  Gate closure:      {self.gate_closure_hour}:00\n"
-            f"  Overall test MAE:  {self.overall_test_mae:.2f} EUR/MWh\n"
-            f"  Overall test RMSE: {self.overall_test_rmse:.2f} EUR/MWh\n"
-            f"  Best horizon:      h={int(best_horizon['horizon']):2d} "
-            f"(MAE {best_horizon['mae']:.2f})\n"
-            f"  Worst horizon:     h={int(worst_horizon['horizon']):2d} "
-            f"(MAE {worst_horizon['mae']:.2f})"
+            f"{metrics_block}"
         )
 
 

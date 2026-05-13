@@ -14,7 +14,7 @@ command: >
   --renewable-path ${{inputs.renewable_data}}
   --output-dir ${{outputs.model_outputs}}
   --gate-closure-hour 12
-  --test-days 30
+  --test-days 0
   --n-estimators 200
   --learning-rate 0.05
   --num-leaves 63
