@@ -9,6 +9,7 @@ from src.train import (
     TrainResult,
     predict_next_day,
     temporal_split,
+    train_per_horizon_models,
 )
 
 # ---------------------------------------------------------------------------
@@ -103,7 +104,64 @@ class TestTrainPerHorizonModelsContract:
         assert trained_result.same_hour_lag_days == (1, 2, 7)
         assert trained_result.context_window == 1
 
+# ---------------------------------------------------------------------------
+# train_per_horizon_models — full-dataset training (no holdout)
+# ---------------------------------------------------------------------------
 
+
+class TestTrainPerHorizonModelsFullDataset:
+    """Tests that test_days=0 trains on the full dataset with NaN metrics."""
+
+    def test_trains_all_horizons(self, sample_prices):
+        result = train_per_horizon_models(
+            sample_prices,
+            gate_closure_hour=12,
+            horizons=(8, 12, 18),
+            same_hour_lag_days=(1, 2, 7),
+            context_window=1,
+            test_days=0,
+        )
+        assert len(result.models) == 3
+        assert set(result.models.keys()) == {8, 12, 18}
+
+    def test_metrics_are_nan(self, sample_prices):
+        result = train_per_horizon_models(
+            sample_prices,
+            gate_closure_hour=12,
+            horizons=(8, 12, 18),
+            same_hour_lag_days=(1, 2, 7),
+            context_window=1,
+            test_days=0,
+        )
+        assert np.isnan(result.overall_test_mae)
+        assert np.isnan(result.overall_test_rmse)
+        assert result.metrics_per_horizon["mae"].isna().all()
+        assert result.metrics_per_horizon["rmse"].isna().all()
+
+    def test_no_test_samples(self, sample_prices):
+        result = train_per_horizon_models(
+            sample_prices,
+            gate_closure_hour=12,
+            horizons=(8, 12, 18),
+            same_hour_lag_days=(1, 2, 7),
+            context_window=1,
+            test_days=0,
+        )
+        assert result.metrics_per_horizon["n_test"].sum() == 0
+
+    def test_test_set_attributes_are_empty(self, sample_prices):
+        result = train_per_horizon_models(
+            sample_prices,
+            gate_closure_hour=12,
+            horizons=(8, 12, 18),
+            same_hour_lag_days=(1, 2, 7),
+            context_window=1,
+            test_days=0,
+        )
+        assert len(result.X_test) == 0
+        assert len(result.y_test) == 0
+        assert len(result.meta_test) == 0
+        
 # ---------------------------------------------------------------------------
 # predict_next_day — output contract
 # ---------------------------------------------------------------------------
@@ -214,3 +272,31 @@ class TestTrainResultSummary:
         s = trained_result.summary()
         assert "Best horizon" in s
         assert "Worst horizon" in s
+        
+    def test_summary_handles_nan_metrics(self):
+        """summary() should work even when all metrics are NaN (test_days=0)."""
+        from src.train import TrainResult
+        import pandas as pd
+        import numpy as np
+        
+        nan_metrics = pd.DataFrame({
+            "horizon": list(range(24)),
+            "mae": [np.nan] * 24,
+            "rmse": [np.nan] * 24,
+            "n_test": [0] * 24,
+        })
+        
+        result = TrainResult(
+            models={},
+            feature_names=[],
+            metrics_per_horizon=nan_metrics,
+            overall_test_mae=float("nan"),
+            overall_test_rmse=float("nan"),
+            gate_closure_hour=12,
+            horizons=tuple(range(24)),
+            same_hour_lag_days=(1, 2, 7),
+            context_window=1,
+        )
+        
+        output = result.summary()
+        assert "n/a" in output

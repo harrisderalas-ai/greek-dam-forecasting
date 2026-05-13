@@ -28,3 +28,4 @@ mlruns/
 outputs/
 *.zip
 data/processed/*
+*.csv

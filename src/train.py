@@ -33,27 +33,45 @@ class TrainResult:
     horizons: tuple[int, ...]
     same_hour_lag_days: tuple[int, ...]
     context_window: int
+    # NEW: persisted train/test sets for debugging
+    X_train: pd.DataFrame | None = None
+    y_train: pd.Series | None = None
+    meta_train: pd.DataFrame | None = None
+    X_test: pd.DataFrame | None = None
+    y_test: pd.Series | None = None
+    meta_test: pd.DataFrame | None = None
     
     def summary(self) -> str:
         """Return a human-readable summary of training results."""
-        worst_horizon = self.metrics_per_horizon.loc[
-            self.metrics_per_horizon["mae"].idxmax()
-        ]
-        best_horizon = self.metrics_per_horizon.loc[
-            self.metrics_per_horizon["mae"].idxmin()
-        ]
+        has_metrics = not self.metrics_per_horizon["mae"].isna().all()
+        
+        if has_metrics:
+            worst_horizon = self.metrics_per_horizon.loc[
+                self.metrics_per_horizon["mae"].idxmax()
+            ]
+            best_horizon = self.metrics_per_horizon.loc[
+                self.metrics_per_horizon["mae"].idxmin()
+            ]
+            metrics_block = (
+                f"  Overall test MAE:  {self.overall_test_mae:.2f} EUR/MWh\n"
+                f"  Overall test RMSE: {self.overall_test_rmse:.2f} EUR/MWh\n"
+                f"  Best horizon:      h={int(best_horizon['horizon']):2d} "
+                f"(MAE {best_horizon['mae']:.2f})\n"
+                f"  Worst horizon:     h={int(worst_horizon['horizon']):2d} "
+                f"(MAE {worst_horizon['mae']:.2f})"
+            )
+        else:
+            metrics_block = (
+                "  Overall test MAE:  n/a (trained on full dataset, no holdout)\n"
+                "  Overall test RMSE: n/a"
+            )
 
         return (
             f"TrainResult Summary\n"
             f"  Models trained:    {len(self.models)} per-horizon LightGBM models\n"
             f"  Features:          {len(self.feature_names)}\n"
             f"  Gate closure:      {self.gate_closure_hour}:00\n"
-            f"  Overall test MAE:  {self.overall_test_mae:.2f} EUR/MWh\n"
-            f"  Overall test RMSE: {self.overall_test_rmse:.2f} EUR/MWh\n"
-            f"  Best horizon:      h={int(best_horizon['horizon']):2d} "
-            f"(MAE {best_horizon['mae']:.2f})\n"
-            f"  Worst horizon:     h={int(worst_horizon['horizon']):2d} "
-            f"(MAE {worst_horizon['mae']:.2f})"
+            f"{metrics_block}"
         )
 
 
@@ -80,6 +98,11 @@ def train_per_horizon_models(
     test_days: int = 14,
     lgbm_params: dict | None = None,
 ) -> TrainResult:
+    """Train per-horizon LightGBM models.
+    
+    If `test_days=0`, trains on the full dataset (no holdout). 
+    Metrics will be NaN since there's no test set to evaluate on.
+    """
     if lgbm_params is None:
         lgbm_params = {
             "n_estimators": 300,
@@ -98,7 +121,15 @@ def train_per_horizon_models(
         same_hour_lag_days=same_hour_lag_days,
         context_window=context_window,
     )
-    X_tr, y_tr, m_tr, X_te, y_te, m_te = temporal_split(X, y, meta, test_days)
+    
+    if test_days == 0:
+        # Train on full dataset, no test split
+        X_tr, y_tr, m_tr = X, y, meta
+        X_te = pd.DataFrame(columns=X.columns)
+        y_te = pd.Series(dtype=y.dtype)
+        m_te = pd.DataFrame(columns=meta.columns)
+    else:
+        X_tr, y_tr, m_tr, X_te, y_te, m_te = temporal_split(X, y, meta, test_days)
 
     models: dict[int, lgb.LGBMRegressor] = {}
     metrics_rows = []
@@ -106,14 +137,17 @@ def train_per_horizon_models(
 
     for h in horizons:
         h_train_mask = m_tr["horizon"] == h
-        h_test_mask = m_te["horizon"] == h
-        if not h_train_mask.any() or not h_test_mask.any():
+        h_test_mask = m_te["horizon"] == h if not m_te.empty else None
+        
+        if not h_train_mask.any():
+            continue
+        
+        # For test_days=0, skip the test-set requirement
+        if test_days > 0 and not h_test_mask.any():
             continue
 
         X_tr_h = X_tr[h_train_mask].drop(columns=["horizon"])
         y_tr_h = y_tr[h_train_mask]
-        X_te_h = X_te[h_test_mask].drop(columns=["horizon"])
-        y_te_h = y_te[h_test_mask]
 
         if feature_names is None:
             feature_names = list(X_tr_h.columns)
@@ -122,29 +156,51 @@ def train_per_horizon_models(
         model.fit(X_tr_h, y_tr_h)
         models[h] = model
 
-        pred = model.predict(X_te_h)
-        metrics_rows.append(
-            {
+        if test_days == 0:
+            # No test set, metrics are NaN
+            metrics_rows.append({
+                "horizon": h,
+                "mae": np.nan,
+                "rmse": np.nan,
+                "n_test": 0,
+            })
+        else:
+            X_te_h = X_te[h_test_mask].drop(columns=["horizon"])
+            y_te_h = y_te[h_test_mask]
+            pred = model.predict(X_te_h)
+            metrics_rows.append({
                 "horizon": h,
                 "mae": mean_absolute_error(y_te_h, pred),
                 "rmse": np.sqrt(mean_squared_error(y_te_h, pred)),
                 "n_test": len(y_te_h),
-            }
-        )
+            })
 
     metrics_df = pd.DataFrame(metrics_rows)
-    weights = metrics_df["n_test"].to_numpy()
+    
+    if test_days == 0:
+        overall_test_mae = float("nan")
+        overall_test_rmse = float("nan")
+    else:
+        weights = metrics_df["n_test"].to_numpy()
+        overall_test_mae = float(np.average(metrics_df["mae"], weights=weights))
+        overall_test_rmse = float(np.average(metrics_df["rmse"], weights=weights))
 
     return TrainResult(
         models=models,
         feature_names=feature_names or [],
         metrics_per_horizon=metrics_df,
-        overall_test_mae=float(np.average(metrics_df["mae"], weights=weights)),
-        overall_test_rmse=float(np.average(metrics_df["rmse"], weights=weights)),
+        overall_test_mae=overall_test_mae,
+        overall_test_rmse=overall_test_rmse,
         gate_closure_hour=gate_closure_hour,
         horizons=horizons,
         same_hour_lag_days=same_hour_lag_days,
         context_window=context_window,
+        X_train=X_tr,
+        y_train=y_tr,
+        meta_train=m_tr,
+        X_test=X_te,
+        y_test=y_te,
+        meta_test=m_te,
     )
 
 
