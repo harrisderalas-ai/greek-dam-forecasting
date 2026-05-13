@@ -1,6 +1,9 @@
 """
 Read all raw CSVs from Blob Storage (historical + daily increments),
-concatenate, de-duplicate, sort, normalize to hourly, and write to processed/.
+resample each to hourly, concatenate, de-duplicate, sort, and write to processed/.
+
+Each file is resampled to hourly before concatenation. This handles
+sources that publish at different cadences (e.g., DAM moved to 15-min in Oct 2025).
 
 Source of truth: Blob Storage.
 Output: one canonical "full.csv" per kind, in processed/{kind}/full.csv.
@@ -37,22 +40,28 @@ def list_all_raw_blobs_for_kind(kind: str) -> list[str]:
 
 
 def read_and_concatenate(blob_names: list[str]) -> pd.DataFrame:
-    """Read each blob, concatenate, de-duplicate by index, sort by index."""
+    """
+    Read each blob, resample to hourly individually, concatenate, dedupe.
+    
+    Resampling each file independently before concatenation ensures the
+    dedup step compares apples to apples (all timestamps are hourly).
+    """
     if not blob_names:
         raise ValueError("No blobs to read")
 
     frames = []
     for name in blob_names:
         df = read_csv_from_blob(STORAGE_ACCOUNT, "raw", name)
-        frames.append(df)
-        print(f"    {name}: {len(df)} rows")
+        df_hourly, _ = process_raw_dataframe(df)
+        frames.append(df_hourly)
+        print(f"    {name}: {len(df)} raw -> {len(df_hourly)} hourly")
 
     combined = pd.concat(frames, axis=0)
     n_before = len(combined)
     combined = combined[~combined.index.duplicated(keep="last")]
     n_after = len(combined)
     if n_before != n_after:
-        print(f"    Deduplicated: {n_before} -> {n_after} rows ({n_before - n_after} dupes removed)")
+        print(f"    Deduplicated: {n_before} -> {n_after} rows ({n_before - n_after} duplicates)")
 
     return combined.sort_index()
 
@@ -73,8 +82,12 @@ def process_one_kind(kind: str) -> None:
         f"range {combined.index.min()} -> {combined.index.max()}"
     )
 
+    # Already hourly from the per-file resampling, but ensure consistency
+    # (handles any cross-file ordering subtleties)
     processed_df, report = process_raw_dataframe(combined)
     print(f"  Process report: {report}")
+    print(f"  Final range: {processed_df.index.min()} -> {processed_df.index.max()}")
+    print(f"  Final rows:  {len(processed_df)}")
 
     out_blob = f"{kind}/full.csv"
     print(f"  Writing: {out_blob}")
