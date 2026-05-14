@@ -29,3 +29,5 @@ outputs/
 *.zip
 data/processed/*
 *.csv
+# Local Azurite emulator state
+.azurite/
