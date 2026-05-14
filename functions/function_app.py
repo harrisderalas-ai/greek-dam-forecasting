@@ -19,7 +19,7 @@ from pathlib import Path
 import azure.functions as func
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import Job
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 
 # Make our scripts importable
 # When deployed, the Function App's working dir contains our code
@@ -66,7 +66,7 @@ def daily_pipeline(timer: func.TimerRequest) -> None:
         )
 
         logging.info("\n[Phase 3] Submitting Azure ML training job...")
-        training_job = submit_job(ml_client, "../infra/training_job.yml", "train")
+        training_job = submit_job(ml_client, "./infra/training_job.yml", "train")
         wait_for_job(ml_client, training_job.name, "training")
 
         logging.info("\n[Phase 4] Submitting Azure ML inference job...")
@@ -105,7 +105,7 @@ def submit_inference_job(ml_client: MLClient, target_date: str) -> Job:
     """Submit inference job with the target date as an override."""
     from azure.ai.ml import load_job
 
-    job = load_job(source=str(Path(__file__).parent / "../infra/inference_job.yml"))
+    job = load_job(source=str(Path(__file__).parent / "infra/inference_job.yml"))
     
     # Override the target-date-athens argument
     timestamp = time.strftime("%Y%m%d_%H%M%S")
