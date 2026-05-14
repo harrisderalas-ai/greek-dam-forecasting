@@ -146,8 +146,8 @@ def load_data(dam_path: str, load_path: str, renewable_path: str
 
     prices, exog = assemble_dataset(dam, load, renewable, join="outer")
     print(f"[data] Combined: {len(prices)} rows")
-    print(f"        DAM range: {prices.dropna().index.min()} → {prices.dropna().index.max()}")
-    print(f"        Exog range: {exog.dropna().index.min()} → {exog.dropna().index.max()}")
+    print(f"        DAM range: {prices.dropna().index.min()} -> {prices.dropna().index.max()}")
+    print(f"        Exog range: {exog.dropna().index.min()} -> {exog.dropna().index.max()}")
     return prices, exog
 
 
@@ -211,7 +211,7 @@ def main() -> None:
                 f"Closest available before it: {closest_before}"
             )
         else:
-            print(f"[predict] forecast_time present in index ✓")
+            print(f"[predict] forecast_time present in index [OK]")
 
         mlflow.log_param("target_date_athens", target_day.strftime("%Y-%m-%d"))
         mlflow.log_param("forecast_time_utc", str(forecast_time_utc))
@@ -223,7 +223,7 @@ def main() -> None:
         )
 
         print(f"[predict] Generated {len(forecast)} predictions")
-        print(f"        Range: {forecast.index.min()} → {forecast.index.max()}")
+        print(f"        Range: {forecast.index.min()} -> {forecast.index.max()}")
         print(
             f"        Mean: {forecast.mean():.2f}, "
             f"Min: {forecast.min():.2f}, Max: {forecast.max():.2f}"

@@ -64,7 +64,7 @@ def backfill_dam_prices(today: pd.Timestamp) -> None:
     end = today  # exclusive — fetches up to (but not including) today 00:00 Athens
     end_label = today - pd.Timedelta(days=1)  # last full day in the data
 
-    print(f"[DAM] Fetching {HISTORY_START.date()} → {end_label.date()} (yesterday)")
+    print(f"[DAM] Fetching {HISTORY_START.date()} -> {end_label.date()} (yesterday)")
     series = fetch_dam_prices(start=HISTORY_START, end=end, country_code=COUNTRY_CODE)
     print(f"[DAM] Fetched {len(series)} rows; latest timestamp: {series.index.max()}")
 
@@ -77,13 +77,13 @@ def backfill_dam_prices(today: pd.Timestamp) -> None:
 
     blob_name = _historical_blob_name("dam_prices", HISTORY_START, end_label)
     url = upload_local_to_blob(local_path, STORAGE_ACCOUNT, CONTAINER, blob_name)
-    print(f"[DAM] Uploaded → {url}")
+    print(f"[DAM] Uploaded -> {url}")
 
 
 def backfill_load_forecast(today: pd.Timestamp) -> None:
     """Fetch and upload load forecast from HISTORY_START through end-of-tomorrow."""
     end = today + pd.Timedelta(days=2)
-    print(f"[LOAD] Fetching {HISTORY_START.date()} → {(today + pd.Timedelta(days=1)).date()}")
+    print(f"[LOAD] Fetching {HISTORY_START.date()} -> {(today + pd.Timedelta(days=1)).date()}")
     series = fetch_load_forecast(start=HISTORY_START, end=end, country_code=COUNTRY_CODE)
     print(f"[LOAD] Fetched {len(series)} rows; latest timestamp: {series.index.max()}")
     end_label = pd.Timestamp(series.index.max()).tz_convert(TIMEZONE).normalize()
@@ -97,13 +97,13 @@ def backfill_load_forecast(today: pd.Timestamp) -> None:
 
     blob_name = _historical_blob_name("load_forecast", HISTORY_START, end_label)
     url = upload_local_to_blob(local_path, STORAGE_ACCOUNT, CONTAINER, blob_name)
-    print(f"[LOAD] Uploaded → {url}")
+    print(f"[LOAD] Uploaded -> {url}")
 
 
 def backfill_renewable_forecast(today: pd.Timestamp) -> None:
     """Fetch and upload wind+solar forecast from HISTORY_START through end-of-tomorrow."""
     end = today + pd.Timedelta(days=2)
-    print(f"[RENEW] Fetching {HISTORY_START.date()} → {(today + pd.Timedelta(days=1)).date()}")
+    print(f"[RENEW] Fetching {HISTORY_START.date()} -> {(today + pd.Timedelta(days=1)).date()}")
     df = fetch_renewable_forecast(start=HISTORY_START, end=end, country_code=COUNTRY_CODE)
     print(f"[RENEW] Fetched {len(df)} rows; latest timestamp: {df.index.max()}; columns: {list(df.columns)}")
     end_label = pd.Timestamp(df.index.max()).tz_convert(TIMEZONE).normalize()
@@ -117,7 +117,7 @@ def backfill_renewable_forecast(today: pd.Timestamp) -> None:
 
     blob_name = _historical_blob_name("renewable_forecast", HISTORY_START, end_label)
     url = upload_local_to_blob(local_path, STORAGE_ACCOUNT, CONTAINER, blob_name)
-    print(f"[RENEW] Uploaded → {url}")
+    print(f"[RENEW] Uploaded -> {url}")
 
 
 def main() -> None:
