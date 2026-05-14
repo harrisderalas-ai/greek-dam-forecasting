@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
 
 def upload_csv_to_blob(df: pd.DataFrame, blob_path: str) -> None:
     """Upload a DataFrame as CSV to blob storage."""
-    print(f"  → Uploading to {CONTAINER}/{blob_path}")
+    print(f"  -> Uploading to {CONTAINER}/{blob_path}")
     credential = DefaultAzureCredential()
     account_url = f"https://{STORAGE_ACCOUNT}.blob.core.windows.net"
     blob_service = BlobServiceClient(account_url=account_url, credential=credential)
@@ -70,28 +70,39 @@ def upload_csv_to_blob(df: pd.DataFrame, blob_path: str) -> None:
     csv_buffer = io.StringIO()
     df.to_csv(csv_buffer)
     blob_client.upload_blob(csv_buffer.getvalue(), overwrite=True)
-    print(f"  ✓ {len(df)} rows uploaded")
+    print(f"  [OK] {len(df)} rows uploaded")
 
 
-def main() -> None:
-    args = parse_args()
+def main(
+    run_date: str | None = None,
+    days_back: int = 1,
+    days_forward: int = 1,
+) -> None:
+    """
+    Fetch ENTSO-E data and upload to blob storage.
 
+    Args:
+        run_date: Date the fetch represents in Athens (YYYY-MM-DD).
+                  If None, defaults to today (Athens).
+        days_back: Days back from run_date to start the fetch window.
+        days_forward: Days forward from run_date to end the fetch window.
+    """
     # Determine the run date (Athens local)
-    if args.run_date:
-        run_date_athens = pd.Timestamp(args.run_date, tz="Europe/Athens")
+    if run_date:
+        run_date_athens = pd.Timestamp(run_date, tz="Europe/Athens")
     else:
         now_athens = pd.Timestamp.now(tz="Europe/Athens")
         run_date_athens = now_athens.normalize()
 
     # Fetch window
-    fetch_start_athens = run_date_athens - pd.Timedelta(days=args.days_back)
-    fetch_end_athens = run_date_athens + pd.Timedelta(days=args.days_forward + 1)
+    fetch_start_athens = run_date_athens - pd.Timedelta(days=days_back)
+    fetch_end_athens = run_date_athens + pd.Timedelta(days=days_forward + 1)
 
     run_date_str = run_date_athens.strftime("%Y-%m-%d")
 
     print(f"=== Daily fetch for run-date {run_date_str} ===")
-    print(f"Window (Athens): {fetch_start_athens} → {fetch_end_athens}")
-    print(f"                = {fetch_start_athens.tz_convert('UTC')} → {fetch_end_athens.tz_convert('UTC')} UTC")
+    print(f"Window (Athens): {fetch_start_athens} -> {fetch_end_athens}")
+    print(f"                = {fetch_start_athens.tz_convert('UTC')} -> {fetch_end_athens.tz_convert('UTC')} UTC")
     print()
 
     # 1. DAM prices
@@ -104,11 +115,11 @@ def main() -> None:
         )
         # Convert to UTC for consistency with processed data
         dam.index = dam.index.tz_convert("UTC")
-        print(f"  → {len(dam)} rows, {dam.index.min()} → {dam.index.max()}")
+        print(f"  -> {len(dam)} rows, {dam.index.min()} -> {dam.index.max()}")
         blob_path = f"dam_prices/daily/{run_date_str}.csv"
         upload_csv_to_blob(dam.to_frame(name="price_eur_mwh"), blob_path)
     except Exception as e:
-        print(f"  ✗ DAM fetch failed: {e}")
+        print(f"  [FAIL] DAM fetch failed: {e}")
         # Don't fail the whole script if DAM is unavailable; log and continue
         # (sometimes ENTSO-E is slow)
 
@@ -123,11 +134,11 @@ def main() -> None:
             country_code=COUNTRY_CODE,
         )
         load.index = load.index.tz_convert("UTC")
-        print(f"  → {len(load)} rows, {load.index.min()} → {load.index.max()}")
+        print(f"  -> {len(load)} rows, {load.index.min()} -> {load.index.max()}")
         blob_path = f"load_forecast/daily/{run_date_str}.csv"
         upload_csv_to_blob(load.to_frame(name="load_forecast_mw"), blob_path)
     except Exception as e:
-        print(f"  ✗ Load forecast fetch failed: {e}")
+        print(f"  [FAIL] Load forecast fetch failed: {e}")
 
     print()
 
@@ -140,15 +151,20 @@ def main() -> None:
             country_code=COUNTRY_CODE,
         )
         renewable.index = renewable.index.tz_convert("UTC")
-        print(f"  → {len(renewable)} rows, {renewable.index.min()} → {renewable.index.max()}")
+        print(f"  -> {len(renewable)} rows, {renewable.index.min()} -> {renewable.index.max()}")
         blob_path = f"renewable_forecast/daily/{run_date_str}.csv"
         upload_csv_to_blob(renewable, blob_path)
     except Exception as e:
-        print(f"  ✗ Renewable forecast fetch failed: {e}")
+        print(f"  [FAIL] Renewable forecast fetch failed: {e}")
 
     print()
     print(f"=== Daily fetch complete ===")
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(
+        run_date=args.run_date,
+        days_back=args.days_back,
+        days_forward=args.days_forward,
+    )

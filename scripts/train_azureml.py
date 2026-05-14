@@ -96,21 +96,21 @@ def load_data(dam_path: str, load_path: str, renewable_path: str) -> tuple[pd.Se
     print(f"[data] Reading DAM:        {dam_path}")
     dam = pd.read_csv(dam_path, index_col=0)
     dam.index = pd.to_datetime(dam.index, utc=True)
-    print(f"        {len(dam)} rows, range {dam.index.min()} → {dam.index.max()}")
+    print(f"        {len(dam)} rows, range {dam.index.min()} -> {dam.index.max()}")
 
     print(f"[data] Reading load:       {load_path}")
     load = pd.read_csv(load_path, index_col=0)
     load.index = pd.to_datetime(load.index, utc=True)
-    print(f"        {len(load)} rows, range {load.index.min()} → {load.index.max()}")
+    print(f"        {len(load)} rows, range {load.index.min()} -> {load.index.max()}")
 
     print(f"[data] Reading renewable:  {renewable_path}")
     renewable = pd.read_csv(renewable_path, index_col=0)
     renewable.index = pd.to_datetime(renewable.index, utc=True)
-    print(f"        {len(renewable)} rows, range {renewable.index.min()} → {renewable.index.max()}")
+    print(f"        {len(renewable)} rows, range {renewable.index.min()} -> {renewable.index.max()}")
 
     prices, exog = assemble_dataset(dam, load, renewable, join="inner")
     print(f"[data] Combined: {len(prices)} aligned rows")
-    print(f"        Range: {prices.index.min()} → {prices.index.max()}")
+    print(f"        Range: {prices.index.min()} -> {prices.index.max()}")
     print(f"        Exog columns: {list(exog.columns)}")
 
     return prices, exog
@@ -202,7 +202,7 @@ def main() -> None:
         # Log artifacts to MLflow (these get tracked alongside the run)
         mlflow.log_artifact(str(model_path), artifact_path="model")
         mlflow.log_artifact(str(metrics_path), artifact_path="metrics")
-        
+
         mlflow.log_dict(
             {
                 "data_start": str(prices.index.min()),
@@ -221,8 +221,8 @@ def main() -> None:
         }).sort_values("importance", ascending=False)
         importance.to_csv(output_dir / "feature_importance_h12.csv", index=False)
         mlflow.log_artifact(str(output_dir / "feature_importance_h12.csv"))
-        
-        # NEW: Register the model in the workspace's Model Registry
+
+        # Register the model in the workspace's Model Registry
         print("[register] Registering model in workspace...")
         model_uri = f"runs:/{run.info.run_id}/model"
         mlflow.register_model(
