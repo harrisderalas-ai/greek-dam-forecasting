@@ -1,0 +1,44 @@
+# Files and directories to exclude from Azure ML job snapshots
+# Same syntax as .gitignore
+
+# Git
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Python / IDE
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+
+# Local data and notebooks (jobs read from blob, not local)
+data/
+notebooks/
+
+# Local development
+.vscode/
+.idea/
+*.log
+
+# Test artifacts
+tests/
+htmlcov/
+.coverage
+
+# Azurite / Function App copies
+.azurite/
+functions/
+
+# Documentation
+docs/
+*.md
+README.md
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

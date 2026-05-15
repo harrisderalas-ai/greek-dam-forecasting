@@ -31,3 +31,7 @@ data/processed/*
 *.csv
 # Local Azurite emulator state
 .azurite/
+# Function App derived copies (recreated by deploy.ps1)
+functions/src/
+functions/scripts/
+functions/infra/
