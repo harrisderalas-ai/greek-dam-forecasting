@@ -36,7 +36,7 @@ app = func.FunctionApp()
 
 
 @app.timer_trigger(
-    schedule="0 0 8 * * *",            # cron: at 08:00 UTC daily
+    schedule="0 0 8 * * *",            # cron: at 08:00 UTC daily           # cron: at 08:00 UTC daily  
     arg_name="timer",
     run_on_startup=False,
     use_monitor=True,

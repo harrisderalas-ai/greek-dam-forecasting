@@ -1,12 +1,19 @@
 """
 Fetch the latest ENTSO-E data and upload to blob storage.
 
-Runs once per day (typically at 08:00 Athens). Fetches a window covering
-yesterday through tomorrow for DAM prices, load forecast, and renewable
-forecast. Uploads each to raw/{kind}/daily/{YYYY-MM-DD}.csv.
+Runs once per day (typically at 08:00 Athens). Fetches data for DAM prices,
+load forecast, and renewable forecast. Uploads each to raw/{kind}/daily/{YYYY-MM-DD}.csv.
 
-The date in the filename is the run date (Athens local). The data inside
-spans yesterday + today.
+The date in the filename is the run date (Athens local).
+
+DAM fetch window:    [run_date - days_back, run_date)         — only fully-published past days
+Load/Renewable:      [run_date - days_back, run_date + days_forward + 1)
+
+Why different windows?
+At 08:00 UTC (11:00 Athens), tomorrow's DAM auction has not closed yet (gate
+closes at 12:00 Athens), so tomorrow's prices aren't published. We deliberately
+stop at end-of-yesterday for DAM to match what inference will see in production.
+Load and renewable forecasts publish day-ahead, so tomorrow's data IS available.
 
 Usage:
     python -m scripts.fetch_daily
@@ -17,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import logging
 import os
 import sys
 from pathlib import Path
@@ -36,6 +44,8 @@ STORAGE_ACCOUNT = "sagreekdamdevweu"
 CONTAINER = "raw"
 COUNTRY_CODE = "GR"
 
+logger = logging.getLogger(__name__)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch daily ENTSO-E data")
@@ -54,14 +64,14 @@ def parse_args() -> argparse.Namespace:
         "--days-forward",
         type=int,
         default=1,
-        help="Days forward from run-date to end fetch (default: 1 = tomorrow)",
+        help="Days forward from run-date to end fetch for load/renewable (default: 1 = tomorrow)",
     )
     return parser.parse_args()
 
 
 def upload_csv_to_blob(df: pd.DataFrame, blob_path: str) -> None:
     """Upload a DataFrame as CSV to blob storage."""
-    print(f"  -> Uploading to {CONTAINER}/{blob_path}")
+    logger.info(f"  -> Uploading to {CONTAINER}/{blob_path}")
     credential = DefaultAzureCredential()
     account_url = f"https://{STORAGE_ACCOUNT}.blob.core.windows.net"
     blob_service = BlobServiceClient(account_url=account_url, credential=credential)
@@ -70,7 +80,7 @@ def upload_csv_to_blob(df: pd.DataFrame, blob_path: str) -> None:
     csv_buffer = io.StringIO()
     df.to_csv(csv_buffer)
     blob_client.upload_blob(csv_buffer.getvalue(), overwrite=True)
-    print(f"  [OK] {len(df)} rows uploaded")
+    logger.info(f"  [OK] {len(df)} rows uploaded")
 
 
 def main(
@@ -85,7 +95,9 @@ def main(
         run_date: Date the fetch represents in Athens (YYYY-MM-DD).
                   If None, defaults to today (Athens).
         days_back: Days back from run_date to start the fetch window.
-        days_forward: Days forward from run_date to end the fetch window.
+        days_forward: Days forward from run_date to end the fetch window
+                      for load/renewable forecasts. (DAM ignores this; it
+                      always stops at end-of-yesterday.)
     """
     # Determine the run date (Athens local)
     if run_date:
@@ -94,74 +106,81 @@ def main(
         now_athens = pd.Timestamp.now(tz="Europe/Athens")
         run_date_athens = now_athens.normalize()
 
-    # Fetch window
+    # Common fetch start (yesterday)
     fetch_start_athens = run_date_athens - pd.Timedelta(days=days_back)
-    fetch_end_athens = run_date_athens + pd.Timedelta(days=days_forward + 1)
+
+    # Two different end points:
+    #   DAM:              ends at run_date (exclusive) — only fully-published past days
+    #   Load/renewable:   ends at run_date + days_forward + 1 (includes tomorrow)
+    dam_fetch_end = run_date_athens
+    forecast_fetch_end = run_date_athens + pd.Timedelta(days=days_forward + 1)
 
     run_date_str = run_date_athens.strftime("%Y-%m-%d")
 
-    print(f"=== Daily fetch for run-date {run_date_str} ===")
-    print(f"Window (Athens): {fetch_start_athens} -> {fetch_end_athens}")
-    print(f"                = {fetch_start_athens.tz_convert('UTC')} -> {fetch_end_athens.tz_convert('UTC')} UTC")
-    print()
+    logger.info(f"=== Daily fetch for run-date {run_date_str} ===")
+    logger.info(f"DAM window (Athens):       {fetch_start_athens} -> {dam_fetch_end}")
+    logger.info(f"Forecast window (Athens):  {fetch_start_athens} -> {forecast_fetch_end}")
 
     # 1. DAM prices
-    print(f"[1/3] Fetching DAM prices...")
+    # Fetch only through end-of-yesterday. Tomorrow's DAM isn't published yet
+    # at 08:00 UTC (gate closes at 12:00 Athens), and we don't want partial
+    # "today" prices polluting the training set.
+    logger.info("[1/3] Fetching DAM prices...")
     try:
         dam = fetch_dam_prices(
             start=fetch_start_athens,
-            end=fetch_end_athens,
+            end=dam_fetch_end,
             country_code=COUNTRY_CODE,
         )
         # Convert to UTC for consistency with processed data
         dam.index = dam.index.tz_convert("UTC")
-        print(f"  -> {len(dam)} rows, {dam.index.min()} -> {dam.index.max()}")
+        logger.info(f"  -> {len(dam)} rows, {dam.index.min()} -> {dam.index.max()}")
         blob_path = f"dam_prices/daily/{run_date_str}.csv"
         upload_csv_to_blob(dam.to_frame(name="price_eur_mwh"), blob_path)
     except Exception as e:
-        print(f"  [FAIL] DAM fetch failed: {e}")
+        logger.exception(f"  [FAIL] DAM fetch failed: {e}")
         # Don't fail the whole script if DAM is unavailable; log and continue
         # (sometimes ENTSO-E is slow)
 
-    print()
-
-    # 2. Load forecast
-    print(f"[2/3] Fetching load forecast...")
+    # 2. Load forecast (publishes day-ahead — tomorrow's forecast IS available)
+    logger.info("[2/3] Fetching load forecast...")
     try:
         load = fetch_load_forecast(
             start=fetch_start_athens,
-            end=fetch_end_athens,
+            end=forecast_fetch_end,
             country_code=COUNTRY_CODE,
         )
         load.index = load.index.tz_convert("UTC")
-        print(f"  -> {len(load)} rows, {load.index.min()} -> {load.index.max()}")
+        logger.info(f"  -> {len(load)} rows, {load.index.min()} -> {load.index.max()}")
         blob_path = f"load_forecast/daily/{run_date_str}.csv"
         upload_csv_to_blob(load.to_frame(name="load_forecast_mw"), blob_path)
     except Exception as e:
-        print(f"  [FAIL] Load forecast fetch failed: {e}")
+        logger.exception(f"  [FAIL] Load forecast fetch failed: {e}")
 
-    print()
-
-    # 3. Renewable forecast
-    print(f"[3/3] Fetching renewable forecast...")
+    # 3. Renewable forecast (publishes day-ahead — tomorrow's forecast IS available)
+    logger.info("[3/3] Fetching renewable forecast...")
     try:
         renewable = fetch_renewable_forecast(
             start=fetch_start_athens,
-            end=fetch_end_athens,
+            end=forecast_fetch_end,
             country_code=COUNTRY_CODE,
         )
         renewable.index = renewable.index.tz_convert("UTC")
-        print(f"  -> {len(renewable)} rows, {renewable.index.min()} -> {renewable.index.max()}")
+        logger.info(f"  -> {len(renewable)} rows, {renewable.index.min()} -> {renewable.index.max()}")
         blob_path = f"renewable_forecast/daily/{run_date_str}.csv"
         upload_csv_to_blob(renewable, blob_path)
     except Exception as e:
-        print(f"  [FAIL] Renewable forecast fetch failed: {e}")
+        logger.exception(f"  [FAIL] Renewable forecast fetch failed: {e}")
 
-    print()
-    print(f"=== Daily fetch complete ===")
+    logger.info("=== Daily fetch complete ===")
 
 
 if __name__ == "__main__":
+    # When run as a CLI script, configure basic logging to stdout
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",  # match the previous bare-print style
+    )
     args = parse_args()
     main(
         run_date=args.run_date,
