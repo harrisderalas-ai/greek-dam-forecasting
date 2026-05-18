@@ -171,14 +171,16 @@ class TestTargetTimesAreCorrect:
 
 
 class TestNoLeakage:
-    """Critical: no feature value at test time may use information from after t."""
+    """Critical: no feature value at test time may use information from after
+    the knowledge horizon (end of today Athens local at forecast time t)."""
 
-    def test_no_tr_feature_uses_post_t_data(self, sample_prices):
+    def test_no_tr_feature_uses_post_knowledge_horizon_data(self, sample_prices):
         """
         Programmatically verify the leakage rule for all tr_* features.
 
         For every (forecast_time, horizon) row, every non-NaN tr_* feature
-        must correspond to a price at a timestamp <= forecast_time.
+        must correspond to a price at a timestamp strictly before
+        end-of-today Athens local (the knowledge horizon at gate closure).
         """
         gc = 12
         prices = sample_prices
@@ -191,7 +193,6 @@ class TestNoLeakage:
 
         for col in tr_cols:
             # Parse d and k from the column name
-            # Format: tr_lag_d{D}_k{K} where K can be -1, +0, +1, etc.
             after_d = col[len("tr_lag_d") :]
             d_str, k_str = after_d.split("_k")
             d = int(d_str)
@@ -199,22 +200,31 @@ class TestNoLeakage:
 
             offset_hours = 24 * d - k
 
-            # For each row, compute feature_time and verify <= forecast_time
+            # For each row, compute feature_time and verify it's strictly
+            # before end-of-today Athens (the knowledge horizon).
             for idx in [0, len(meta) // 2, len(meta) - 1]:
                 ft = meta["forecast_time"].iloc[idx]
                 h = meta["horizon"].iloc[idx]
                 tt = meta["target_time"].iloc[idx]
                 feature_time = tt - pd.Timedelta(hours=offset_hours)
+
+                # Knowledge horizon: end-of-today Athens (in same tz as ft)
+                ft_athens = ft.tz_convert("Europe/Athens")
+                knowledge_horizon = ft_athens.normalize() + pd.Timedelta(days=1)
+                # Compare in a consistent timezone
+                feature_time_athens = feature_time.tz_convert("Europe/Athens")
+
                 value = X[col].iloc[idx]
 
-                if feature_time <= ft:
-                    # Feature should have a real value (no leakage problem)
-                    pass  # The fact that the value exists is fine
+                if feature_time_athens < knowledge_horizon:
+                    # Feature should have a real value (no leakage)
+                    pass  # value being present is fine
                 else:
                     # Feature would leak — must be NaN
                     assert pd.isna(value), (
                         f"LEAKAGE: column {col} at row {idx} "
-                        f"(ft={ft}, h={h}, ftime={feature_time}) "
+                        f"(ft={ft}, h={h}, ftime={feature_time}, "
+                        f"knowledge_horizon={knowledge_horizon}) "
                         f"should be NaN but has value {value}"
                     )
 
@@ -225,7 +235,11 @@ class TestNoLeakage:
 
 
 class TestNanPattern:
-    """For gate_closure=12, the per-horizon NaN count in tr_* columns is fixed."""
+    """Under the new knowledge model (today's prices are fully known at
+    gate closure), tr_* features have very few NaNs. Only the column that
+    looks at "1 hour past target's same-hour-yesterday" can leak, and only
+    for horizon=23 (which would point at tomorrow 00:00).
+    """
 
     @pytest.mark.parametrize(
         "horizon,expected_nan_count",
@@ -233,11 +247,12 @@ class TestNanPattern:
             (0, 0),
             (5, 0),
             (11, 0),
-            (12, 1),  # d1_k+1 becomes NaN (feature_time = t + 1h)
-            (13, 2),  # d1_k+0 and d1_k+1
-            (14, 3),  # all three d1_*
-            (20, 3),
-            (23, 3),
+            (12, 0),
+            (13, 0),
+            (14, 0),
+            (20, 0),
+            (22, 0),
+            (23, 1),  # tr_lag_d1_k+1 points at tomorrow 00:00 → NaN
         ],
     )
     def test_nan_count_matches_expected(self, sample_prices, horizon, expected_nan_count):
@@ -258,6 +273,69 @@ class TestNanPattern:
         )
 
 
+class TestTodayPricesAvailableAtGateClosure:
+    """At gate closure today, today's full 24 prices are already published
+    (yesterday's DAM auction released them). Features that point at today's
+    hours should NOT be NaN, even if those hours are after gate_closure_hour."""
+
+    def test_d1_lag_for_evening_horizons_is_not_nan(self, sample_prices):
+        """
+        For predicting tomorrow's evening (e.g., horizon=20), the d=1 same-hour
+        lag points at TODAY's 20:00. That price was published yesterday and is
+        known at gate closure (12:00 today). It must not be NaN.
+        """
+        X, _, meta = build_supervised_dataset(
+            sample_prices,
+            gate_closure_hour=12,
+            same_hour_lag_days=(1,),
+            context_window=0,
+        )
+
+        # Pick a horizon=20 row past the warm-up period
+        mask = meta["horizon"] == 20
+        rows = X[mask].reset_index(drop=True)
+        assert len(rows) > 10, "Need enough data past warm-up"
+
+        sample = rows.iloc[10]
+        assert not pd.isna(sample["tr_lag_d1_k+0"]), (
+            "tr_lag_d1_k+0 at horizon=20 should be today's 20:00 price, "
+            "which is published at gate closure and must not be NaN"
+        )
+
+    def test_only_d1_k_plus_1_at_h23_is_nan(self, sample_prices):
+        """
+        The ONLY tr_* feature that can be NaN under the new model is
+        tr_lag_d1_k+1 at horizon=23, because it would point at tomorrow 00:00
+        (which is past the knowledge horizon).
+        """
+        X, _, meta = build_supervised_dataset(
+            sample_prices,
+            gate_closure_hour=12,
+            same_hour_lag_days=(1, 2, 7),
+            context_window=1,
+        )
+        tr_cols = [c for c in X.columns if c.startswith("tr_")]
+
+        # For horizon=23, exactly one tr_ feature should be NaN: tr_lag_d1_k+1
+        mask = meta["horizon"] == 23
+        rows = X[mask].reset_index(drop=True)
+        sample = rows.iloc[10]
+        nan_cols = [c for c in tr_cols if pd.isna(sample[c])]
+        assert nan_cols == ["tr_lag_d1_k+1"], (
+            f"At horizon=23, expected only tr_lag_d1_k+1 to be NaN, "
+            f"got {nan_cols}"
+        )
+
+        # For horizon=10, no tr_ feature should be NaN
+        mask = meta["horizon"] == 10
+        rows = X[mask].reset_index(drop=True)
+        sample = rows.iloc[10]
+        nan_cols = [c for c in tr_cols if pd.isna(sample[c])]
+        assert nan_cols == [], (
+            f"At horizon=10, expected no NaN tr_* features, got {nan_cols}"
+        )
+        
+        
 class TestDSTHandling:
     """Verify the pipeline handles DST transitions correctly.
 

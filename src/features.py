@@ -2,10 +2,14 @@
 
 Convention
 ----------
-- Forecast time t = today at gate_closure_hour (default 12:00 local).
+- Forecast time t = today at gate_closure_hour (default 12:00 Athens local).
 - Horizons h in {0, ..., 23} index the target hour-of-day for tomorrow.
 - For target h, target_time = t + (24 - gate_closure_hour) + h hours.
-- All features may only use price information at times <= t.
+- Knowledge horizon at t = end of today (Athens local). The DAM auction
+  for today's prices was published yesterday, so today's full 24 hours
+  are already public at gate closure t. Tomorrow's prices are NOT known.
+- All features may only use price information at times strictly before
+  the knowledge horizon.
 """
 
 from __future__ import annotations
@@ -105,7 +109,19 @@ def make_target_relative_lags(
     """
     Target-relative lags. Always emits all configured columns.
 
-    Disallowed lags (would leak future) are set to NaN; LightGBM handles NaN natively.
+    Knowledge model
+    ---------------
+    At forecast time t = today at gate_closure_hour (Athens), the DAM auction
+    has already published TODAY's full 24 hours (published yesterday around
+    noon). The auction for TOMORROW's prices is happening now and will be
+    published in 1-2 hours, after gate closure.
+
+    So at t, the set of known prices is:
+        all timestamps strictly before end-of-today (Athens local).
+
+    A feature pointing at a timestamp >= end-of-today is leakage and is NaN'd.
+    LightGBM handles NaN natively.
+
     Lag arithmetic done in UTC to avoid DST edge cases.
     """
     if context_window < 0:
@@ -118,6 +134,12 @@ def make_target_relative_lags(
     forecast_times_utc = forecast_times.tz_convert("UTC")
     target_times_utc = forecast_times_utc + pd.Timedelta(hours=distance)
 
+    # Knowledge horizon: end-of-today Athens local. One value per forecast_time.
+    # Computed per-row so it tracks DST correctly.
+    forecast_times_athens = forecast_times.tz_convert("Europe/Athens")
+    end_of_today_athens = forecast_times_athens.normalize() + pd.Timedelta(days=1)
+    knowledge_horizon_utc = end_of_today_athens.tz_convert("UTC")
+
     df = pd.DataFrame(index=forecast_times)
 
     for d in same_hour_lag_days:
@@ -126,12 +148,17 @@ def make_target_relative_lags(
             offset_hours = center_offset - k
             col_name = f"tr_lag_d{d}_k{k:+d}"
 
-            if offset_hours < distance:
-                # Leakage: this hour is after forecast time t.
-                df[col_name] = np.nan
-            else:
-                feature_times_utc = target_times_utc - pd.Timedelta(hours=offset_hours)
-                df[col_name] = prices_utc.reindex(feature_times_utc).values
+            # Where each row's feature points in UTC
+            feature_times_utc = target_times_utc - pd.Timedelta(hours=offset_hours)
+
+            # Fetch values (reindex returns NaN for missing timestamps automatically)
+            values = prices_utc.reindex(feature_times_utc).to_numpy(dtype=float, copy=True)
+
+            # NaN out features that point at/after the knowledge horizon
+            is_future = feature_times_utc >= knowledge_horizon_utc
+            values[np.asarray(is_future)] = np.nan
+
+            df[col_name] = values
 
     return df
 
