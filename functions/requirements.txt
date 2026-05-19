@@ -7,3 +7,4 @@ pandas>=2.0
 entsoe-py>=0.6
 holidays>=0.40
 python-dotenv>=1.0
+tenacity>=8.2

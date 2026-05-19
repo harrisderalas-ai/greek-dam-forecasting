@@ -2,51 +2,9 @@
 
 import os
 from pathlib import Path
-import logging
+
 import pandas as pd
 from dotenv import load_dotenv
-import requests
-from tenacity import (
-    retry,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)
-
-logger = logging.getLogger(__name__)
-
-
-def _is_retriable_entsoe_error(exc: BaseException) -> bool:
-    """
-    Decide whether an exception from the ENTSO-E API is worth retrying.
-
-    Retry on transient errors:
-    - ConnectionError (network glitch)
-    - Timeout (slow response)
-    - HTTPError with status 5xx (ENTSO-E server-side issue, e.g., 503)
-
-    Do NOT retry on:
-    - HTTPError with status 4xx (auth issue, bad params — won't fix itself)
-    - Other exceptions (programming errors)
-    """
-    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
-        return True
-    if isinstance(exc, requests.exceptions.HTTPError):
-        response = exc.response
-        if response is not None and 500 <= response.status_code < 600:
-            return True
-    return False
-
-
-# Retry policy: up to 3 attempts, exponential backoff (2s, 4s, 8s)
-_entsoe_retry = retry(
-    retry=retry_if_exception(_is_retriable_entsoe_error),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=2, min=2, max=16),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-    reraise=True,
-)
 
 
 def load_entsoe_token() -> str:
@@ -90,7 +48,6 @@ def load_entsoe_token() -> str:
         )
     return token
 
-@_entsoe_retry
 def fetch_dam_prices(
     start: pd.Timestamp,
     end: pd.Timestamp,
@@ -114,7 +71,7 @@ def fetch_dam_prices(
 
     return prices
 
-@_entsoe_retry
+
 def fetch_load_forecast(
     start: pd.Timestamp,
     end: pd.Timestamp,
